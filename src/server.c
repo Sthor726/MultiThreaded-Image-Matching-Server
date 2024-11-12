@@ -12,16 +12,20 @@ int queue_len = 0; //Global integer to indicate the length of the queue
   [multiple funct]  --> How will you track the p_thread's that you create for dispatchers?
   [multiple funct]  --> Might be helpful to track the ID's of your threads in a global array
   What kind of locks will you need to make everything thread safe? [Hint you need multiple]
-  What kind of CVs will you need  (i.e. queue full, queue empty) [Hint you need multiple]
-  How will you track the number of images in the database?
-  How will you track the requests globally between threads? How will you ensure this is thread safe? Example: request_t req_entries[MAX_QUEUE_LEN]; 
   [multiple funct]  --> How will you update and utilize the current number of requests in the request queue?
   [worker()]        --> How will you track which index in the request queue to remove next? 
   [dispatcher()]    --> How will you know where to insert the next request received into the request queue?
   [multiple funct]  --> How will you track the p_thread's that you create for workers? TODO
-  How will you store the database of images? What data structure will you use? Example: database_entry_t database[100]; 
 */
 
+database_entry_t database[100]; // database of images
+u_int32_t database_size = 0; // number of images in the database
+
+request_detials_t queue[MAX_QUEUE_LEN]; // queue
+ssize_t queue_head, queue_tail = 0; // queue indices
+pthread_cond_t space_available = PTHREAD_COND_INITIALIZER; // queue condition var
+pthread_cond_t entry_available = PTHREAD_COND_INITIALIZER; // queue condition var
+pthread_mutex_t queue_mtx = PTHREAD_MUTEX_INITIALIZER; // queue lock
 
 //TODO: Implement this function
 /**********************************************
@@ -81,64 +85,130 @@ void LogPrettyPrint(FILE* to_write, int threadId, int requestNumber, char * file
   
 }
 
+void loadDatabase(char *path) {
+  struct dirent* entry;
 
-/*
-  TODO: Implement this function for Intermediate Submission
-  * loadDatabase
-    - parameters:
-        - path is the path to the directory containing the images
-    - returns:
-        - no return value
-    - Description:
-        - Traverse the directory and load all the images into the database
-          - Load the images from the directory into the database
-          - You will need to read the images into memory
-          - You will need to store the file name in the database_entry_t struct
-          - You will need to store the file size in the database_entry_t struct
-          - You will need to store the image data in the database_entry_t struct
-          - You will need to increment the number of images in the database
-*/
-/***********/
+  // open the directory
+  DIR* dir = opendir(path);
+  if (dir == NULL) {
+    perror("Failed to open database");
+    exit(EXIT_FAILURE);
+  }
 
-void loadDatabase(char *path)
-{
- 
+  // iterate through the directory
+  while ((entry = readdir(dir)) != NULL) {
+    // skip '.' and '..' entries
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+        continue;
+    }
+
+    // construct the file path
+    char fullPath[BUFF_SIZE];
+    snprintf(fullPath, sizeof(fullPath), "%s/%s", path, entry->d_name);
+
+    // open the file
+    int fd = open(fullPath, O_RDONLY);
+    if (fd == -1) {
+      perror("Failed to open database file");
+      exit(EXIT_FAILURE);
+    }
+
+    // initialize database entry struct
+    database_entry_t image;
+    image.file_name = entry->d_name;
+    image.buffer = malloc(BUFFER_SIZE);
+    if (!image.buffer) {
+      perror("Failed to allocate memory for image");
+      exit(EXIT_FAILURE);
+    }
+
+    // read file contents into buffer
+    ssize_t bytesRead;
+    ssize_t totalSize = 0;
+
+    while ((bytesRead = read(fd, image.buffer + totalSize, BUFFER_SIZE)) > 0) {
+      totalSize += bytesRead;
+      // may need to reallocate here? are the images under a certain size?
+    }
+    if (bytesRead == -1) {
+      perror("Error reading file");
+      exit(EXIT_FAILURE);
+    }
+
+    if (close(fd) == -1) {
+      perror("Error closing file");
+      exit(EXIT_FAILURE);
+    }
+
+    // save file size
+    image.file_size = totalSize;
+
+    // add the database entry to the in-memory array
+    database[database_size++] = image;
+  }
+
+  // close the directory
+  if (closedir(dir) == -1) {
+    perror("Error closing directory");
+    exit(EXIT_FAILURE);
+  }
 }
 
 
-void * dispatch(void *thread_id) 
-{   
-  while (1) 
-  {
-    size_t file_size = 0;
+void * dispatch(void *thread_id) {   
+  while (1) {
     request_detials_t request_details;
 
-    /* TODO: Intermediate Submission
-    *    Description:      Accept client connection
-    *    Utility Function: int accept_connection(void)
-    */
+    // accept client connection-
+    int fd = accept_connection();
+    if (fd < 0) {
+      continue;
+    }
 
-    
-    /* TODO: Intermediate Submission
-    *    Description:      Get request from client
-    *    Utility Function: char * get_request_server(int fd, size_t *filelength)
-    */
+    // get client request
+    char* req = get_request_server(fd, &request_details.filelength);
+    if (req == NULL) {
+      continue;
+    }
 
-   /* TODO
-    *    Description:      Add the request into the queue
-        //(1) Copy the filename from get_request_server into allocated memory to put on request queue
-        
+    // copy the request string into the struct
+    strncpy(&request_details.buffer, req, sizeof(request_details.buffer) - 1);
+    request_details.buffer[sizeof(request_details.buffer) - 1] = '\0';
 
-        //(2) Request thread safe access to the request queue
+    // free
+    free(req);
 
-        //(3) Check for a full queue... wait for an empty one which is signaled from req_queue_notfull
+    // acquire the queue lock
+    if (pthread_mutex_lock(&queue_mtx) != 0) {
+      perror("Error acquiring lock");
+      exit(EXIT_FAILURE);
+    }
 
-        //(4) Insert the request into the queue
-        
-        //(5) Update the queue index in a circular fashion (i.e. update on circular fashion which means when the queue is full we start from the beginning again) 
+    // wait for space in the queue
+    while(queue_len == MAX_QUEUE_LEN) {
+      if (pthread_cond_wait(&space_available, &queue_mtx) != 0) {
+        perror("Error waiting for condition var");
+        exit(EXIT_FAILURE);
+      }
+    }
 
-        //(6) Release the lock on the request queue and signal that the queue is not empty anymore
-   */
+    // add the request into the queue and update indices
+    queue[queue_tail] = request_details;
+    queue_tail = (queue_tail + 1) % MAX_QUEUE_LEN;
+    queue_len++;
+
+    // release the queue lock
+    if (pthread_mutex_unlock(&queue_mtx) != 0) {
+      perror("Error releasing lock");
+      exit(EXIT_FAILURE);
+    }
+
+    // signal that the queue is not empty
+    if (pthread_cond_signal(&entry_available) != 0) {
+      perror("Error signaling condition var");
+      exit(EXIT_FAILURE);
+    }
+
   }
     return NULL;
 }
