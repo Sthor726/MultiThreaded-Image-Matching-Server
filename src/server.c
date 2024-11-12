@@ -21,7 +21,7 @@ int queue_len = 0; //Global integer to indicate the length of the queue
 database_entry_t database[100]; // database of images
 u_int32_t database_size = 0; // number of images in the database
 
-request_detials_t queue[MAX_QUEUE_LEN]; // queue
+request_t queue[MAX_QUEUE_LEN]; // queue
 ssize_t queue_head, queue_tail = 0; // queue indices
 pthread_cond_t space_available = PTHREAD_COND_INITIALIZER; // queue condition var
 pthread_cond_t entry_available = PTHREAD_COND_INITIALIZER; // queue condition var
@@ -157,23 +157,27 @@ void loadDatabase(char *path) {
 
 void * dispatch(void *thread_id) {   
   while (1) {
-    request_detials_t request_details;
+    request_t request;
 
     // accept client connection-
-    int fd = accept_connection();
-    if (fd < 0) {
+    request.file_descriptor = accept_connection();
+    if (request.file_descriptor < 0) {
       continue;
     }
 
     // get client request
-    char* req = get_request_server(fd, &request_details.filelength);
+    char* req = get_request_server(request.file_descriptor, &request.file_size);
     if (req == NULL) {
       continue;
     }
 
-    // copy the request string into the struct
-    strncpy(&request_details.buffer, req, sizeof(request_details.buffer) - 1);
-    request_details.buffer[sizeof(request_details.buffer) - 1] = '\0';
+    // allocate and copy the request string into the struct
+    request.buffer = malloc(request.file_size);
+    if (request.buffer == NULL) {
+      perror("Failed to allocate memory for buffer");
+      exit(EXIT_FAILURE);
+    }
+    strncpy(request.buffer, req, request.file_size);
 
     // free
     free(req);
@@ -193,7 +197,7 @@ void * dispatch(void *thread_id) {
     }
 
     // add the request into the queue and update indices
-    queue[queue_tail] = request_details;
+    queue[queue_tail] = request;
     queue_tail = (queue_tail + 1) % MAX_QUEUE_LEN;
     queue_len++;
 
