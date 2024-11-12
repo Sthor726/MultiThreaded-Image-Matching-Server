@@ -1,31 +1,20 @@
 #include "../include/server.h"
 
-// /********************* [ Helpful Global Variables ] **********************/
 int num_dispatcher = 0; //Global integer to indicate the number of dispatcher threads   
 int num_worker = 0;  //Global integer to indicate the number of worker threads
 FILE *logfile;  //Global file pointer to the log file
-int queue_len = 0; //Global integer to indicate the length of the queue
-
-/* TODO: Intermediate Submission
-  TODO: Add any global variables that you may need to track the requests and threads
-  [multiple funct]  --> How will you track the p_thread's that you create for workers?
-  [multiple funct]  --> How will you track the p_thread's that you create for dispatchers?
-  [multiple funct]  --> Might be helpful to track the ID's of your threads in a global array
-  What kind of locks will you need to make everything thread safe? [Hint you need multiple]
-  [multiple funct]  --> How will you update and utilize the current number of requests in the request queue?
-  [worker()]        --> How will you track which index in the request queue to remove next? 
-  [dispatcher()]    --> How will you know where to insert the next request received into the request queue?
-  [multiple funct]  --> How will you track the p_thread's that you create for workers? TODO
-*/
 
 database_entry_t database[100]; // database of images
 u_int32_t database_size = 0; // number of images in the database
 
 request_t queue[MAX_QUEUE_LEN]; // queue
-ssize_t queue_head, queue_tail = 0; // queue indices
+ssize_t queue_head, queue_tail, queue_len = 0; // queue indices
 pthread_cond_t space_available = PTHREAD_COND_INITIALIZER; // queue condition var
 pthread_cond_t entry_available = PTHREAD_COND_INITIALIZER; // queue condition var
 pthread_mutex_t queue_mtx = PTHREAD_MUTEX_INITIALIZER; // queue lock
+
+int dispatcher_thread[MAX_THREADS]; // array to hold id of dispatcher threads
+int worker_thread[MAX_THREADS]; // array to hold id of worker threads
 
 //TODO: Implement this function
 /**********************************************
@@ -154,7 +143,6 @@ void loadDatabase(char *path) {
   }
 }
 
-
 void * dispatch(void *thread_id) {   
   while (1) {
     request_t request;
@@ -259,64 +247,71 @@ void * worker(void *thread_id) {
   }
 }
 
-int main(int argc , char *argv[])
-{
-   if(argc != 6){
+int main(int argc , char *argv[]) {
+  if(argc != 6){
     printf("usage: %s port path num_dispatcher num_workers queue_length \n", argv[0]);
     return -1;
   }
 
-
-  int port            = -1;
-  char path[BUFF_SIZE] = "no path set\0";
-  num_dispatcher      = -1;                               //global variable
-  num_worker          = -1;                               //global variable
-  queue_len           = -1;                               //global variable
- 
-
-  /* TODO: Intermediate Submission
-  *    Description:      Get the input args --> (1) port (2) database path (3) num_dispatcher (4) num_workers  (5) queue_length
-  */
+  // retrive input arguments
+  int port = atoi(argv[1]);
+  char path[BUFF_SIZE];
+  strncpy(path, argv[2], BUFF_SIZE);
+  num_dispatcher = atoi(argv[3]);
+  num_worker = atoi(argv[4]);
+  queue_len = atoi(argv[5]);
   
 
-  /* TODO: Intermediate Submission
-  *    Description:      Open log file
-  *    Hint:             Use Global "File* logfile", use "server_log" as the name, what open flags do you want?
-  */
-  
- 
+  // open log file
+  logfile = fopen("server_log", "w");
+  if (logfile == NULL) {
+      perror("Failed to open log file");
+      exit(EXIT_FAILURE);
+  }
 
-  /* TODO: Intermediate Submission
-  *    Description:      Start the server
-  *    Utility Function: void init(int port); //look in utils.h 
-  */
+  // start the server
+  init(port);
 
+  // load database into memory
+  loadDatabase(path);
 
-  /* TODO : Intermediate Submission
-  *    Description:      Load the database
-  *    Function: void loadDatabase(char *path); // prototype in server.h
-  */
- 
+  // create threads
+  for (int i = 0; i < num_worker; i++) {
+      int *thread_id = malloc(sizeof(int));
+      if (thread_id == NULL) {
+          perror("Failed to allocate memory for thread ID");
+          exit(EXIT_FAILURE);
+      }
+      *thread_id = i;
+      if (pthread_create(&worker_thread[i], NULL, worker, (void *)thread_id) != 0) {
+          printf("ERROR: Failed to create worker thread %d.\n", i);
+          exit(EXIT_FAILURE);
+      }
+  }
 
-  /* TODO: Intermediate Submission
-  *    Description:      Create dispatcher and worker threads 
-  *    Hints:            Use pthread_create, you will want to store pthread's globally
-  *                      You will want to initialize some kind of global array to pass in thread ID's
-  *                      How should you track this p_thread so you can terminate it later? [global]
-  */
-
-
+  for (int i = 0; i < num_dispatcher; i++) {
+      int *thread_id = malloc(sizeof(int));
+      if (thread_id == NULL) {
+          perror("Failed to allocate memory for thread ID");
+          exit(EXIT_FAILURE);
+      }
+      *thread_id = i;
+      if (pthread_create(&dispatcher_thread[i], NULL, worker, (void *)thread_id) != 0) {
+          printf("ERROR: Failed to create worker thread %d.\n", i);
+          exit(EXIT_FAILURE);
+      }
+  }
 
   // Wait for each of the threads to complete their work
   // Threads (if created) will not exit (see while loop), but this keeps main from exiting
-  int i;
-  for(i = 0; i < num_dispatcher; i++){
+  for(int i = 0; i < num_dispatcher; i++){
     fprintf(stderr, "JOINING DISPATCHER %d \n",i);
     if((pthread_join(dispatcher_thread[i], NULL)) != 0){
       printf("ERROR : Fail to join dispatcher thread %d.\n", i);
     }
   }
-  for(i = 0; i < num_worker; i++){
+
+  for(int i = 0; i < num_worker; i++){
    // fprintf(stderr, "JOINING WORKER %d \n",i);
     if((pthread_join(worker_thread[i], NULL)) != 0){
       printf("ERROR : Fail to join worker thread %d.\n", i);
