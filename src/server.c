@@ -1,20 +1,20 @@
 #include "../include/server.h"
 
-int num_dispatcher = 0; //Global integer to indicate the number of dispatcher threads   
-int num_worker = 0;  //Global integer to indicate the number of worker threads
-FILE *logfile;  //Global file pointer to the log file
+FILE *logfile;  // log filestream
 
 database_entry_t database[100]; // database of images
 u_int32_t database_size = 0; // number of images in the database
 
 request_t queue[MAX_QUEUE_LEN]; // queue
-ssize_t queue_head, queue_tail, queue_len = 0; // queue indices
+int queue_head, queue_tail, queue_len, curr_queue_size = 0; // queue indices
 pthread_cond_t space_available = PTHREAD_COND_INITIALIZER; // queue condition var
 pthread_cond_t entry_available = PTHREAD_COND_INITIALIZER; // queue condition var
 pthread_mutex_t queue_mtx = PTHREAD_MUTEX_INITIALIZER; // queue lock
 
-int dispatcher_thread[MAX_THREADS]; // array to hold id of dispatcher threads
-int worker_thread[MAX_THREADS]; // array to hold id of worker threads
+pthread_t dispatcher_thread[MAX_THREADS]; // array to hold id of dispatcher threads
+pthread_t worker_thread[MAX_THREADS]; // array to hold id of worker threads
+int num_dispatcher = 0; // number of dispatchers
+int num_worker = 0; // number of workers
 
 //TODO: Implement this function
 /**********************************************
@@ -104,7 +104,7 @@ void loadDatabase(char *path) {
 
     // initialize database entry struct
     database_entry_t image;
-    image.file_name = entry->d_name;
+    strncpy(image.file_name, entry->d_name, sizeof(image.file_name));
     image.buffer = malloc(BUFFER_SIZE);
     if (!image.buffer) {
       perror("Failed to allocate memory for image");
@@ -146,18 +146,20 @@ void loadDatabase(char *path) {
 void * dispatch(void *thread_id) {   
   while (1) {
     request_t request;
+    size_t file_size;
 
-    // accept client connection-
+    // accept client connection
     request.file_descriptor = accept_connection();
     if (request.file_descriptor < 0) {
       continue;
     }
 
     // get client request
-    char* req = get_request_server(request.file_descriptor, &request.file_size);
+    char* req = get_request_server(request.file_descriptor, &file_size);
     if (req == NULL) {
       continue;
     }
+    request.file_size = (int) file_size;
 
     // allocate and copy the request string into the struct
     request.buffer = malloc(request.file_size);
@@ -177,7 +179,7 @@ void * dispatch(void *thread_id) {
     }
 
     // wait for space in the queue
-    while(queue_len == MAX_QUEUE_LEN) {
+    while(curr_queue_size == queue_len) {
       if (pthread_cond_wait(&space_available, &queue_mtx) != 0) {
         perror("Error waiting for condition var");
         exit(EXIT_FAILURE);
@@ -186,8 +188,8 @@ void * dispatch(void *thread_id) {
 
     // add the request into the queue and update indices
     queue[queue_tail] = request;
-    queue_tail = (queue_tail + 1) % MAX_QUEUE_LEN;
-    queue_len++;
+    queue_tail = (queue_tail + 1) % queue_len;
+    curr_queue_size++;
 
     // release the queue lock
     if (pthread_mutex_unlock(&queue_mtx) != 0) {
@@ -255,11 +257,26 @@ int main(int argc , char *argv[]) {
 
   // retrive input arguments
   int port = atoi(argv[1]);
+  if ((port > MAX_PORT) || (port < MIN_PORT)) {
+    printf("Port must be between %i and %i\n", MIN_PORT, MAX_PORT);
+    return -1;
+  }
+
   char path[BUFF_SIZE];
   strncpy(path, argv[2], BUFF_SIZE);
+
   num_dispatcher = atoi(argv[3]);
   num_worker = atoi(argv[4]);
+  if ((num_worker > MAX_THREADS) || (num_dispatcher > MAX_THREADS)) {
+    printf("Maximum of %i dispatchers/ workers\n", MAX_QUEUE_LEN);
+    return -1;
+  }
+
   queue_len = atoi(argv[5]);
+  if (queue_len > MAX_QUEUE_LEN) {
+    printf("Maximum of %i queue length\n", MAX_QUEUE_LEN);
+    return -1;
+  }
   
 
   // open log file
