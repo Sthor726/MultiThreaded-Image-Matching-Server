@@ -16,48 +16,31 @@ pthread_t worker_thread[MAX_THREADS]; // array to hold id of worker threads
 int num_dispatcher = 0; // number of dispatchers
 int num_worker = 0; // number of workers
 
-//TODO: Implement this function
-/**********************************************
- * image_match
-   - parameters:
-      - input_image is the image data to compare
-      - size is the size of the image data
-   - returns:
-       - database_entry_t that is the closest match to the input_image
-************************************************/
-//just uncomment out when you are ready to implement this function
 database_entry_t image_match(char *input_image, int size)
 {
-  // const char *closest_file     = NULL;
-	// int         closest_distance = 10;
-  // int closest_index = 0;
-  // for(int i = 0; i < 0 /* replace with your database size*/; i++)
-	// {
-	// 	const char *current_file; /* TODO: assign to the buffer from the database struct*/
-	// 	int result = memcmp(input_image, current_file, size);
-	// 	if(result == 0)
-	// 	{
-	// 		return database[i];
-	// 	}
+  const char *closest_file     = NULL;
+  int         closest_distance = 10;
+  int closest_index = 0;
+  for (int i = 0; i < database_size; i++) {
+  	const char *current_file = database[i].buffer;
+  	int result = memcmp(input_image, current_file, size);
+  	if(result == 0) {
+  		return database[i];
+  	}
 
-	// 	else if(result < closest_distance)
-	// 	{
-	// 		closest_distance = result;
-	// 		closest_file     = current_file;
-  //     closest_index = i;
-	// 	}
-	// }
+  	else if (result < closest_distance) {
+  		closest_distance = result;
+  		closest_file     = current_file;
+      closest_index = i;
+  	}
+  }
 
-	// if(closest_file != NULL)
-	// {
-  //   return database[closest_index];
-	// }
-  // else
-  // {
-  //   printf("No closest file found.\n");
-  // }
-  
-  
+  if (closest_file != NULL) {
+    return database[closest_index];
+  }
+  else {
+    printf("No closest file found.\n");
+  }
 }
 
 //TODO: Implement this function
