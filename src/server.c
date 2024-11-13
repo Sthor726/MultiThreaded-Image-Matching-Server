@@ -40,8 +40,7 @@ database_entry_t image_match(char *input_image, int size)
     return database[closest_index];
   } else {
     printf("No closest file found.\n");
-    database_entry_t empty_entry = {"", 0};
-    return empty_entry;
+    return database[0];
   }
 }
 
@@ -116,12 +115,10 @@ void* dispatch(void *thread_id) {
     size_t file_size;
 
     // accept client connection
-    printf("accepting conns\n");
     request.file_descriptor = accept_connection();
     if (request.file_descriptor < 0) {
       continue;
     }
-    printf("accepted conn\n");
 
     // get client request
     char* req = get_request_server(request.file_descriptor, &file_size);
