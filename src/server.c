@@ -167,7 +167,7 @@ void* dispatch(void *thread_id) {
     }
 
     // signal that the queue is not empty
-    if (pthread_cond_broadcast(&entry_available) != 0) {
+    if (pthread_cond_signal(&entry_available) != 0) {
       perror("Error signaling condition var");
       exit(EXIT_FAILURE);
     }
@@ -210,7 +210,7 @@ void * worker(void *thread_id) {
     }
 
     // signal that the queue has space available
-    if (pthread_cond_broadcast(&space_available) != 0) {
+    if (pthread_cond_signal(&space_available) != 0) {
       perror("Error signaling condition var");
       exit(EXIT_FAILURE);
     }

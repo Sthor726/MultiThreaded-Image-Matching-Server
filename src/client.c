@@ -10,12 +10,6 @@ char output_path[1028];
 
 processing_args_t req_entries[100];
 
-int files_opened = 0;
-int lengths_calculated = 0;
-int connections = 0;
-int files_sent = 0;
-int files_received = 0;
-int files_closed = 0;
 
 void * request_handle(void * img_file_path) {
     // open the file
@@ -24,8 +18,6 @@ void * request_handle(void * img_file_path) {
         perror("fopen");
         return NULL;
     }
-    files_opened++;
-    printf("Files opened: %d\n", files_opened);
 
     // get file size
     if (fseek(file, 0, SEEK_END) != 0){
@@ -47,6 +39,7 @@ void * request_handle(void * img_file_path) {
 
     // set up connection
     int fd = setup_connection(port);
+
     // send file to server
     send_file_to_server(fd, file, len);
 
