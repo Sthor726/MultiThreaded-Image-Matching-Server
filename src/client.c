@@ -10,36 +10,58 @@ char output_path[1028];
 
 processing_args_t req_entries[100];
 
-/* TODO: implement the request_handle function to send the image to the server and recieve the processed image
-* 1. Open the file in the read-binary mode (i.e. "rb" mode) - Intermediate Submission, DONE
-* 2. Get the file length using the fseek and ftell functions - Intermediate Submission, DONE
-* 3. set up the connection with the server using the setup_connection(int port) function - Intermediate Submission, DONE
-* 4. Send the file to the server using the send_file_to_server(int fd, FILE *file, int size) function - Intermediate Submission, DONE
-* 5. Receive the processed image from the server using the receive_file_from_server(int socket, char *file_path) function, DONE?
-* 6. receive_file_from_server saves the processed image in the output directory, so pass in the right directory path, DONE?
-* 7. Close the file, DONE
-*/
-void * request_handle(void * img_file_path)
-{
+int files_opened = 0;
+int lengths_calculated = 0;
+int connections = 0;
+int files_sent = 0;
+int files_received = 0;
+int files_closed = 0;
+
+void * request_handle(void * img_file_path) {
+    // open the file
     FILE* file = fopen(img_file_path, "rb");
+    if (file == NULL) {
+        perror("fopen");
+        return NULL;
+    }
+    files_opened++;
+    printf("Files opened: %d\n", files_opened);
+
+    // get file size
     if (fseek(file, 0, SEEK_END) != 0){
         perror("fseek");
+        fclose(file);
+        return NULL;
     }
     long len = ftell(file);
     if(len == -1){
         perror("ftell");
+        fclose(file);
+        return NULL;
     }
-    fseek(file, 0, SEEK_SET);
+    if (fseek(file, 0, SEEK_SET) != 0) {
+        perror("fseek");
+        fclose(file);
+        return NULL;
+    }
 
+    // set up connection
     int fd = setup_connection(port);
-    if(send_file_to_server(fd, file, len) == -1){
-        perror("send_file_to_server");
-    }
-    if(receive_file_from_server(fd, "./output/img") == -1){
-        perror("receive_file_from_server");
+    // send file to server
+    send_file_to_server(fd, file, len);
+
+    // receive the file
+    if (receive_file_from_server(fd, output_path) == -1){
+        printf("Error: receive_file_from_server\n");
+        fclose(file);
+        return NULL;
     }
 
-    fclose(file);
+    // close file
+    if (fclose(file) == EOF) {
+        perror("fclose");
+        return NULL;
+    }
     return NULL;
 }
 
@@ -73,22 +95,20 @@ void directory_trav(char * img_directory_path)
 }
 
 
-int main(int argc, char *argv[])
-{
-    if(argc < 2)
-    {
-        fprintf(stderr, "Usage: ./client <directory path> <Server Port> <output path>\n");
-        exit(-1);
+int main(int argc, char *argv[]) {
+    // verify argument count
+    if(argc != 4) {
+        fprintf(stderr, "Usage: %s <directory path> <Server Port> <output path>\n", argv[0]);
+        exit(EXIT_FAILURE);
     }
-    /*TODO:  Intermediate Submission
-    * 1. Get the input args --> (1) directory path (2) Server Port (3) output path, DONE
-    */
+
+    // parse arguments
     char* dir_path = argv[1];
     port = atoi(argv[2]);
     strcpy(output_path, argv[3]);
-    /*TODO: Intermediate Submission
-    * Call the directory_trav function to traverse the directory and send the images to the server, DONE
-    */
+
+    // traverse the input directory
     directory_trav(dir_path);
-    return 0;  
+
+    return EXIT_SUCCESS;  
 }

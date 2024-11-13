@@ -1,6 +1,7 @@
 #include "../include/server.h"
 
 FILE *logfile;  // log filestream
+pthread_mutex_t log_mtx = PTHREAD_MUTEX_INITIALIZER; // log lock
 
 database_entry_t database[100]; // database of images
 u_int32_t database_size = 0; // number of images in the database
@@ -37,9 +38,10 @@ database_entry_t image_match(char *input_image, int size)
 
   if (closest_file != NULL) {
     return database[closest_index];
-  }
-  else {
+  } else {
     printf("No closest file found.\n");
+    database_entry_t empty_entry = {"", 0};
+    return empty_entry;
   }
 }
 
@@ -54,7 +56,7 @@ database_entry_t image_match(char *input_image, int size)
        - no return value
 ************************************************/
 void LogPrettyPrint(FILE* to_write, int threadId, int requestNumber, char * file_name, int file_size){
-  
+  return;
 }
 
 void loadDatabase(char *path)
@@ -99,7 +101,7 @@ void loadDatabase(char *path)
 
       // Read file contents into memory buffers
       fread(buffer1, sizeof(unsigned char), fileLength1, fp1);
-      database[database_size].buffer = buffer1;
+      database[database_size].buffer = (char*) buffer1;
       database[database_size].file_size = fileLength1;
       database_size++;
     }
@@ -108,16 +110,18 @@ void loadDatabase(char *path)
   closedir(dir);
 }
 
-void * dispatch(void *thread_id) {   
-  while (1) {
+void* dispatch(void *thread_id) {   
+  while (true) {
     request_t request;
     size_t file_size;
 
     // accept client connection
+    printf("accepting conns\n");
     request.file_descriptor = accept_connection();
     if (request.file_descriptor < 0) {
       continue;
     }
+    printf("accepted conn\n");
 
     // get client request
     char* req = get_request_server(request.file_descriptor, &file_size);
@@ -163,7 +167,7 @@ void * dispatch(void *thread_id) {
     }
 
     // signal that the queue is not empty
-    if (pthread_cond_signal(&entry_available) != 0) {
+    if (pthread_cond_broadcast(&entry_available) != 0) {
       perror("Error signaling condition var");
       exit(EXIT_FAILURE);
     }
@@ -173,44 +177,53 @@ void * dispatch(void *thread_id) {
 }
 
 void * worker(void *thread_id) {
-
-  // You may use them or not, depends on how you implement the function
   int num_request = 0;                                    //Integer for tracking each request for printing into the log file
-  int fileSize    = 0;                                    //Integer to hold the size of the file being requested
-  void *memory    = NULL;                                 //memory pointer where contents being requested are read and stored
-  int fd          = INVALID;                              //Integer to hold the file descriptor of incoming request
-  char *mybuf;                                  //String to hold the contents of the file being requested
-
-
-  /* TODO : Intermediate Submission 
-  *    Description:      Get the id as an input argument from arg, set it to ID
-  */
+  //int fileSize    = 0;                                    //Integer to hold the size of the file being requested
+  //void *memory    = NULL;                                 //memory pointer where contents being requested are read and stored
+  //int fd          = INVALID;                              //Integer to hold the file descriptor of incoming request
+  //char *mybuf;                                            //String to hold the contents of the file being requested
     
-  while (1) {
-    /* TODO
-    *    Description:      Get the request from the queue and do as follows
-      //(1) Request thread safe access to the request queue by getting the req_queue_mutex lock
-      //(2) While the request queue is empty conditionally wait for the request queue lock once the not empty signal is raised
+  while (true) {
+    // acquire the queue lock
+    if (pthread_mutex_lock(&queue_mtx) != 0) {
+      perror("Error acquiring lock");
+      exit(EXIT_FAILURE);
+    }
 
-      //(3) Now that you have the lock AND the queue is not empty, read from the request queue
+    // wait for an item in the queue
+    while(curr_queue_size == 0) {
+      if (pthread_cond_wait(&entry_available, &queue_mtx) != 0) {
+        perror("Error waiting for condition var");
+        exit(EXIT_FAILURE);
+      }
+    }
 
-      //(4) Update the request queue remove index in a circular fashion
+    // extract the request
+    request_t request = queue[queue_head];
+    queue_head = (queue_head + 1) % queue_len;
+    curr_queue_size--;
 
-      //(5) Fire the request queue not full signal to indicate the queue has a slot opened up and release the request queue lock  
-      */
+    // release the queue lock
+    if (pthread_mutex_unlock(&queue_mtx) != 0) {
+      perror("Error releasing lock");
+      exit(EXIT_FAILURE);
+    }
+
+    // signal that the queue has space available
+    if (pthread_cond_broadcast(&space_available) != 0) {
+      perror("Error signaling condition var");
+      exit(EXIT_FAILURE);
+    }
         
-      
-    /* TODO
-    *    Description:       Call image_match with the request buffer and file size
-    *    store the result into a typeof database_entry_t
-    *    send the file to the client using send_file_to_client(int fd, char * buffer, int size)              
-    */
+    // call image_match()
+    database_entry_t result = image_match(request.buffer, request.file_size);
 
-    /* TODO
-    *    Description:       Call LogPrettyPrint() to print server log
-    *    update the # of request (include the current one) this thread has already done, you may want to have a global array to store the number for each thread
-    *    parameters passed in: refer to write up
-    */
+    // send file to the client
+    send_file_to_client(request.file_descriptor, result.buffer, result.file_size);
+
+    // log
+    LogPrettyPrint(logfile, *((int*)thread_id), ++num_request, result.file_name, result.file_size);
+
   }
 }
 
@@ -270,7 +283,6 @@ int main(int argc , char *argv[]) {
           exit(EXIT_FAILURE);
       }
   }
-
   for (int i = 0; i < num_dispatcher; i++) {
       int *thread_id = malloc(sizeof(int));
       if (thread_id == NULL) {
@@ -278,7 +290,7 @@ int main(int argc , char *argv[]) {
           exit(EXIT_FAILURE);
       }
       *thread_id = i;
-      if (pthread_create(&dispatcher_thread[i], NULL, worker, (void *)thread_id) != 0) {
+      if (pthread_create(&dispatcher_thread[i], NULL, dispatch, (void *)thread_id) != 0) {
           printf("ERROR: Failed to create worker thread %d.\n", i);
           exit(EXIT_FAILURE);
       }
@@ -287,7 +299,6 @@ int main(int argc , char *argv[]) {
   // Wait for each of the threads to complete their work
   // Threads (if created) will not exit (see while loop), but this keeps main from exiting
   for(int i = 0; i < num_dispatcher; i++){
-    fprintf(stderr, "JOINING DISPATCHER %d \n",i);
     if((pthread_join(dispatcher_thread[i], NULL)) != 0){
       printf("ERROR : Fail to join dispatcher thread %d.\n", i);
     }
