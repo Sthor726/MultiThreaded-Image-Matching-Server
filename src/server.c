@@ -64,7 +64,7 @@ void LogPrettyPrint(FILE* to_write, int threadId, int requestNumber, char * file
   if (pthread_mutex_lock(&log_mtx) != 0) {
     perror("Error acquiring log lock");
     exit(EXIT_FAILURE);
-  }  
+  }
   // flush before to clean buffer
   if (fflush(to_write) == -1){
       perror("Error flushing buffer to file");
