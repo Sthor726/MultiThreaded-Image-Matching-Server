@@ -25,10 +25,9 @@ database_entry_t image_match(char *input_image, int size)
   for (int i = 0; i < database_size; i++) {
   	const char *current_file = database[i].buffer;
   	int result = memcmp(input_image, current_file, size);
-  	if(result == 0) {
+    if(result == 0) {
   		return database[i];
   	}
-
   	else if (result < closest_distance) {
   		closest_distance = result;
   		closest_file     = current_file;
@@ -54,12 +53,49 @@ database_entry_t image_match(char *input_image, int size)
    - returns:
        - no return value
 ************************************************/
+
 void LogPrettyPrint(FILE* to_write, int threadId, int requestNumber, char * file_name, int file_size){
+  // make string to print
+  char log[1200]; // allocate enough space for the name 1028 chars and some extra for ints 
+  memset(log, '\0', sizeof(log));
+  sprintf(log, "[%d][%d][%s][%d]\n", threadId, requestNumber, file_name, file_size);
+
+
+  if (pthread_mutex_lock(&log_mtx) != 0) {
+    perror("Error acquiring log lock");
+    exit(EXIT_FAILURE);
+  }  
+  // flush before to clean buffer
+  if (fflush(to_write) == -1){
+      perror("Error flushing buffer to file");
+      exit(EXIT_FAILURE);
+  }
+
+
+  if(to_write == NULL){
+    printf("%s", log);
+  } else {
+    // acquire the log lock
+    if (fprintf(to_write, "%s", log) == -1){
+      perror("Error writing to file");
+      exit(EXIT_FAILURE);
+    }
+
+    if (fflush(to_write) == -1){
+      perror("Error flushing buffer to file");
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  // release the log lock
+  if (pthread_mutex_unlock(&log_mtx) != 0) {
+    perror("Error releasing log lock");
+    exit(EXIT_FAILURE);
+  }
   return;
 }
 
-void loadDatabase(char *path)
-{
+void loadDatabase(char *path) {
   struct dirent *entry; 
   DIR *dir = opendir(path);
   if (dir == NULL)
