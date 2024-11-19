@@ -148,7 +148,6 @@ void loadDatabase(char *path) {
 void* dispatch(void *thread_id) {   
   while (true) {
     request_t request;
-    size_t file_size;
 
     // accept client connection
     request.file_descriptor = accept_connection();
@@ -157,22 +156,10 @@ void* dispatch(void *thread_id) {
     }
 
     // get client request
-    char* req = get_request_server(request.file_descriptor, &file_size);
-    if (req == NULL) {
+    request.buffer = get_request_server(request.file_descriptor, &request.file_size);
+    if (request.buffer == NULL) {
       continue;
     }
-    request.file_size = (int) file_size;
-
-    // allocate and copy the request string into the struct
-    request.buffer = malloc(request.file_size);
-    if (request.buffer == NULL) {
-      perror("Failed to allocate memory for buffer");
-      exit(EXIT_FAILURE);
-    }
-    strncpy(request.buffer, req, request.file_size);
-
-    // free
-    free(req);
 
     // acquire the queue lock
     if (pthread_mutex_lock(&queue_mtx) != 0) {
@@ -200,7 +187,7 @@ void* dispatch(void *thread_id) {
     }
 
     // signal that the queue is not empty
-    if (pthread_cond_signal(&entry_available) != 0) {
+    if (pthread_cond_broadcast(&entry_available) != 0) {
       perror("Error signaling condition var");
       exit(EXIT_FAILURE);
     }

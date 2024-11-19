@@ -61,7 +61,7 @@
 
 typedef struct request_queue
 {
-    int file_size;
+    size_t file_size;
     int file_descriptor;
     char *buffer;
 }request_t; 

@@ -1,7 +1,5 @@
 #include "../include/client.h"
 
-
-
 int port = 0;
 
 pthread_t worker_thread[100];
@@ -10,6 +8,9 @@ char output_path[1028];
 
 processing_args_t req_entries[100];
 
+pthread_mutex_t img_mtx = PTHREAD_MUTEX_INITIALIZER;
+
+int img = 1;
 
 void * request_handle(void * img_file_path) {
     // open the file
@@ -43,8 +44,25 @@ void * request_handle(void * img_file_path) {
     // send file to server
     send_file_to_server(fd, file, len);
 
+    // contruct output destination
+    char constructed_path[1600];
+
+    // Construct output destination
+    // acquire the img lock
+    if (pthread_mutex_lock(&img_mtx) != 0) {
+      perror("Error acquiring lock");
+      exit(EXIT_FAILURE);
+    }
+
+    snprintf(constructed_path, sizeof(constructed_path), "output/img_%d.png", img++);
+
+    if (pthread_mutex_unlock(&img_mtx) != 0) {
+      perror("Error releasing lock");
+      exit(EXIT_FAILURE);
+    }
+
     // receive the file
-    if (receive_file_from_server(fd, output_path) == -1){
+    if (receive_file_from_server(fd, constructed_path) == -1){
         printf("Error: receive_file_from_server\n");
         fclose(file);
         return NULL;
