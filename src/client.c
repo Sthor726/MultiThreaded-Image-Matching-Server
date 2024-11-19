@@ -54,7 +54,7 @@ void * request_handle(void * img_file_path) {
       exit(EXIT_FAILURE);
     }
 
-    snprintf(constructed_path, sizeof(constructed_path), "output/img_%d.png", img++);
+    snprintf(constructed_path, sizeof(constructed_path), "%s/img_%d.png", output_path, img++);
 
     if (pthread_mutex_unlock(&img_mtx) != 0) {
       perror("Error releasing lock");
@@ -116,6 +116,7 @@ int main(int argc, char *argv[]) {
     // parse arguments
     char* dir_path = argv[1];
     port = atoi(argv[2]);
+    memset(output_path, '\0', sizeof(output_path));
     strcpy(output_path, argv[3]);
 
     // traverse the input directory
